@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Style Translation with TensorFlow.js</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bulma/0.6.2/css/bulma.min.css">
+</head>
+<body>
+  <div class="container">
+    <h1 class="title">Style Translation with TensorFlow.js</h1>
+    <div class="columns is-centered">
+      <div class="column is-narrow">
+        <video autoplay playsinline muted name="0" id="webcam" width="112" height="112"></video>
+        <canvas id="transimg" width="220" height="220" style="border: 2px solid; display:none"></canvas>
+        <img id="gia" width="220" height="220" src=img/gia.gif>
+        <div >
+          <p class="control">
+
+<div id="styleset1">
+  <img width=100 name="0" onclick="click_style(this);" src="img/0.png">
+  <img width=100 name="1" onclick="click_style(this);" src="img/1.png">
+  <img width=100 name="2" onclick="click_style(this);" src="img/2.png">
+  <img width=100 name="3" onclick="click_style(this);" src="img/3.png">
+  <img width=100 name="4" onclick="click_style(this);" src="img/4.png">
+</div>
+<div id="styleset2">
+  <img width=100 name="5" onclick="click_style(this);" src="img/5.png">
+  <img width=100 name="6" onclick="click_style(this);" src="img/6.png">
+  <img width=100 name="7" onclick="click_style(this);" src="img/7.png">
+  <img width=100 name="8" onclick="click_style(this);" src="img/8.png">
+  <img width=100 name="9" onclick="click_style(this);" src="img/9.png">
+</div>
+          </p>
+
+        </div>
+    </div>
+
+  </div>
+  <div>
+    元論文 <a target="_blank" href='https://arxiv.org/pdf/1610.07629.pdf'>A LEARNED REPRESENTATION FOR ARTISTIC STYLE</a>
+  </div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/signature_pad/1.5.3/signature_pad.min.js"></script>
+
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter@0.5.9"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core@0.15.3"></script>
+  <script src="https://d3js.org/d3-selection.v1.min.js"></script>
+  <script>
+
+
+  const canvas = d3.select('#transimg').node();
+
+
+  const webcamElement = document.getElementById('webcam');
+
+  async function setupWebcam() {
+  return new Promise((resolve, reject) => {
+    const navigatorAny = navigator;
+    navigator.getUserMedia = navigator.getUserMedia ||
+        navigatorAny.webkitGetUserMedia || navigatorAny.mozGetUserMedia ||
+        navigatorAny.msGetUserMedia;
+    if (navigator.getUserMedia) {
+      navigator.getUserMedia({video: true},
+        stream => {
+          webcamElement.srcObject = stream;
+          webcamElement.addEventListener('loadeddata',  () => resolve(), false);
+        },
+        error => reject());
+    } else {
+      reject();
+    }
+  });
+}
+
+   style_id=0;
+
+   clist=[];
+   sset1= document.getElementById("styleset1");
+   childs1 = sset1.children;
+
+   for (var i = 0; i < childs1.length; i++){
+     clist.push(childs1[i])
+   }
+
+   sset2= document.getElementById("styleset2");
+   childs2 = sset2.children;
+
+   for (var i = 0; i < childs2.length; i++){
+     clist.push(childs2[i])
+   }
+
+   for(var j=0; j<clist.length; j++){
+      clist[j].style.border = "solid 4px white";
+   }
+
+   clist[0].style.border = "solid 4px red";
+
+   function click_style(item){
+     for(var j=0; j<clist.length; j++){
+           clist[j].style.border = "solid 4px white";
+        }
+        item.style.border = "solid 4px red";
+    style_id=Number(item.name);
+   }
+
+
+  // init SignaturePad
+  const drawElement = document.getElementById('draw-area');
+  const gia = document.getElementById('gia');
+
+
+  let debuNet = tf.loadFrozenModel('/model/tensorflowjs_model.pb', '/model/weights_manifest.json');
+  var mymodel;
+  function warmup(){
+    return debuNet.then(function(model) {
+      var style_label=tf.tensor1d([Number(webcamElement.name)]);
+      style_label = tf.cast(style_label, 'int32');
+      let input = tf.zeros([112,112,3], 'int32');
+      model.predict({
+          'input_img': input,
+          'style_label':style_label
+        }).dataSync();
+        return model;
+    });
+
+  };
+
+
+  async function app() {
+    console.log('Loading mobilenet..');
+
+    // Load the model.
+
+    console.log('Sucessfully loaded model');
+
+    await setupWebcam();
+    mymodel=await warmup();
+
+    gia.style.display="none";
+    canvas.style.display="";
+
+    let i=0;
+    while (true) {
+      result = tf.tidy(() => {
+      var style_label=tf.tensor1d([style_id]);
+      style_label = tf.cast(style_label, 'int32');
+      // convert to tensor (shape: [width, height, channels])
+      const channels = 3; // grayscale
+      let input = tf.fromPixels(webcamElement, channels);
+      // normalized
+      input = tf.cast(input, 'int32')//.div(tf.scalar(255));
+
+
+      output=mymodel.predict({
+        'input_img': input,
+        'style_label':style_label
+      });
+
+      return output.dataSync();
+      });
+
+        //console.log(result);
+        let img = tf.reshape(result, [112,112,3]);
+        img = tf.image.resizeBilinear(img, [220, 220]);
+        //console.log(img);
+        await tf.browser.toPixels(img, canvas).then(() => {
+               tf.dispose([img]);
+             });
+
+
+    // Give some breathing room by waiting for the next animation frame to
+    // fire.
+    if(i>1000){
+      return 0;
+    }
+    i=i+1;
+    tf.nextFrame();
+    }
+
+}
+
+app();
+
+  function prediction() {
+
+  }
+  function reset() {
+    signaturePad.clear();
+    let elements = document.querySelectorAll(".accuracy");
+    elements.forEach(el => {
+      el.parentNode.classList.remove('is-selected');
+      el.innerText = '-';
+    })
+  }
+
+  </script>
+</body>
+</html>
